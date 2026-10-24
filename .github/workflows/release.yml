@@ -1,0 +1,53 @@
+name: Version or Release from Changesets
+
+on:
+    push:
+        branches: [main]
+
+# Serialize runs so near-simultaneous pushes can't race on the same tag and push operations.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+    pull-requests: write
+    # Lets npm trusted publishing (OIDC) and provenance work when a Trusted Publisher is registered for the package.
+    id-token: write
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+
+            - name: Setup Node
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  registry-url: https://registry.npmjs.org
+
+            # Install without running dependency lifecycle scripts so a compromised transitive dependency can't read
+            # NODE_AUTH_TOKEN, which is only set on the release step below. Native builds (sqlite3, @apollo/protobufjs)
+            # are only needed for tests, which don't run in this job.
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile --ignore-scripts
+
+            # Opens or updates the "Version Packages" PR while changesets are pending. Once that PR merges, publishes any
+            # version not yet on npm (prepublishOnly cleans and builds) and pushes the version tags.
+            - name: Create release PR or publish
+              uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+              with:
+                  version: pnpm exec changeset version
+                  publish: pnpm exec changeset publish
+                  title: Version Packages
+                  commit: Version Packages
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+                  NPM_CONFIG_PROVENANCE: true
