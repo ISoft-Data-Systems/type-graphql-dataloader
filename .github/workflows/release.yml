@@ -1,16 +1,23 @@
-name: Release
+name: Version or Release from Changesets
 
 on:
     push:
-        tags:
-            - "v*"
+        branches: [main]
+
+# Serialize runs so near-simultaneous pushes can't race on the same tag and push operations.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+    pull-requests: write
+    # Lets npm trusted publishing (OIDC) and provenance work when a Trusted Publisher is registered for the package.
+    id-token: write
 
 jobs:
-    publish:
+    release:
         runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            id-token: write
         steps:
             - name: Checkout repository
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,26 +32,22 @@ jobs:
                   cache: pnpm
                   registry-url: https://registry.npmjs.org
 
-            # Install without running dependency lifecycle scripts, so a
-            # compromised/malicious transitive dependency can't read NPM_TOKEN
-            # off this job's environment. Native builds we actually need
-            # (sqlite3, @apollo/protobufjs) are approved in pnpm-workspace.yaml
-            # and only needed for tests, which don't run in this job.
+            # Install without running dependency lifecycle scripts so a compromised transitive dependency can't read
+            # NODE_AUTH_TOKEN, which is only set on the release step below. Native builds (sqlite3, @apollo/protobufjs)
+            # are only needed for tests, which don't run in this job.
             - name: Install dependencies
               run: pnpm install --frozen-lockfile --ignore-scripts
 
-            - name: Build
-              run: pnpm run build
-
-            - name: Verify package version matches tag
-              run: |
-                  PKG_VERSION="v$(node -p "require('./package.json').version")"
-                  if [ "$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
-                    echo "package.json version ($PKG_VERSION) does not match tag ($GITHUB_REF_NAME)"
-                    exit 1
-                  fi
-
-            - name: Publish to npm
-              run: pnpm publish --no-git-checks --access public --provenance
+            # Opens or updates the "Version Packages" PR while changesets are pending. Once that PR merges, publishes any
+            # version not yet on npm (prepublishOnly cleans and builds) and pushes the version tags.
+            - name: Create release PR or publish
+              uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+              with:
+                  version: pnpm exec changeset version
+                  publish: pnpm exec changeset publish
+                  title: Version Packages
+                  commit: Version Packages
               env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+                  NPM_CONFIG_PROVENANCE: true

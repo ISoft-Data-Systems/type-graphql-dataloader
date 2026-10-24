@@ -14,3 +14,7 @@ Do not add internal ISoft tooling, dependencies, or secrets:
 Keep ESLint and Prettier configured locally in this repo ([eslint.config.js](eslint.config.js), [.prettierrc.json](.prettierrc.json)) using public packages only.
 
 The standard ISoft TypeScript project tooling (for example the `typescript-project` skill) does not apply to this repo where it conflicts with the rules above.
+
+## Changesets
+
+Releases use [Changesets](https://github.com/changesets/changesets) with the public `@changesets/cli` package. Before opening a PR for a user-facing change (new feature, bug fix, or behavior change), run `pnpm changeset` to add one. Merging to `main` opens a "Version Packages" PR, and merging that PR publishes to npm and pushes the version tag.
